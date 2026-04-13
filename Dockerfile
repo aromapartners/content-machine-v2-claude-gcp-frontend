@@ -1,24 +1,26 @@
+# Stage 1: Build
 FROM node:20-slim AS builder
 WORKDIR /app
-COPY package.json package-lock.json* ./
+COPY package*.json ./
 RUN npm ci
 COPY . .
 RUN npm run build
 
-# Stage 2: Runtime
-FROM node:20-alpine
-WORKDIR /app
-RUN npm install -g serve@14
+# Stage 2: Production (Dùng Nginx cho nhẹ và nhanh)
+FROM nginx:alpine
 
-# Copy dist từ stage builder
-COPY --from=builder /app/dist /app/dist
+# Copy file build từ stage 1
+COPY --from=builder /app/dist /usr/share/nginx/html
 
-# Khai báo PORT mặc định (Cloud Run sẽ ghi đè cái này)
+# Tạo file script để inject biến môi trường vào config.js khi khởi động
+RUN echo '#!/bin/sh' > /docker-entrypoint.d/30-inject-env.sh && \
+    echo 'echo "window.__RUNTIME_CONFIG__={BACKEND_URL:\"${BACKEND_URL}\"};" > /usr/share/nginx/html/config.js' >> /docker-entrypoint.d/30-inject-env.sh && \
+    chmod +x /docker-entrypoint.d/30-inject-env.sh
+
+# Cấu hình Nginx để lắng nghe port của Cloud Run
+RUN sed -i 's/listen  80;/listen ${PORT};/' /etc/nginx/conf.d/default.conf
+
+# Cloud Run tự động truyền biến PORT vào môi trường
 ENV PORT=8080
-EXPOSE 8080
 
-# SỬA LỖI TẠI ĐÂY: 
-# 1. Đảm bảo file config.js được tạo ra đúng vị trí
-# 2. Sử dụng biến $PORT thay vì fix cứng 8080
-# 3. Sử dụng đường dẫn tuyệt đối cho serve
-CMD ["sh", "-c", "echo \"window.__RUNTIME_CONFIG__={BACKEND_URL:'\"$BACKEND_URL\"'};\" > /app/dist/config.js && serve -s /app/dist -l $PORT"]
+CMD ["nginx", "-g", "daemon off;"]
