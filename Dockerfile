@@ -1,9 +1,10 @@
-FROM node:20-slim AS builder
+FROM node:20-alpine AS builder
 WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci
 COPY . .
 RUN npm run build
+
 # Ensure config.js exists in dist (Vite copies from public/, but just in case)
 RUN echo 'window.__RUNTIME_CONFIG__={BACKEND_URL:""};' > /app/dist/config.js
 
